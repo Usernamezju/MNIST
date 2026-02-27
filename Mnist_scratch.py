@@ -14,14 +14,14 @@ from torchvision import datasets, transforms
 # ============================================================
 #  超参数配置区（调参从这里入手！）
 # ============================================================
-LEARNING_RATE = 1     # 试试: 0.001 / 0.01 / 0.1
+LEARNING_RATE = 0.1     # 试试: 0.001 / 0.01 / 0.1
 BATCH_SIZE = 64       # 试试: 32 / 64 / 256 / 1024
-EPOCHS = 200      # 轮数
+EPOCHS = 20     # 轮数
 HIDDEN1 = 256      # 第一隐藏层神经元数
 HIDDEN2 = 128      # 第二隐藏层神经元数
-WEIGHT_DECAY = 1e-4     # L2 正则化系数，0 表示关闭
-MOMENTUM = 0.9
-LABEL_SMOOTHING = 0.1    # 试试 0.0（关闭） / 0.05 / 0.1 / 0.2
+WEIGHT_DECAY = 0     # L2 正则化系数，0 表示关闭
+MOMENTUM = 0
+LABEL_SMOOTHING = 0    # 试试 0.0（关闭） / 0.05 / 0.1 / 0.2
 # ============================================================
 #  1. 数据加载与预处理
 # ============================================================
@@ -163,8 +163,6 @@ def backward(cache, y, params):
     smooth_labels[np.arange(m), y] = 1.0 - LABEL_SMOOTHING
 
     dZ3 = (A3 - smooth_labels) / m  # 替换原来的 dZ3 三行
-    dZ3[np.arange(m), y] -= 1
-    dZ3 /= m
     dW3 = A2.T @ dZ3
     db3 = dZ3.sum(axis=0, keepdims=True)
     # 第二层梯度
