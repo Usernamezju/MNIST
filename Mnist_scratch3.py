@@ -115,20 +115,22 @@ class MnistCNN(nn.Module):
         # padding=1 时 7→7，再经过 MaxPool(2) 变成 floor(7/2)=3
         # 想得到4×4需要 padding=1 + MaxPool ceil_mode=True（向上取整）
         layers3 = [
-            nn.Conv2d(CNN_FILTERS_2, CNN_FILTERS_3, kernel_size=CNN_KERNEL_SIZE, padding=1),
+            nn.Conv2d(CNN_FILTERS_2, 10, kernel_size=CNN_KERNEL_SIZE, padding=1),
             nn.ReLU(),
         ]
         if CNN_USE_BN:
-            layers3.append(nn.BatchNorm2d(CNN_FILTERS_3))
-        layers3.append(nn.MaxPool2d(2, ceil_mode=True))  # ceil_mode=True: 7→4 而不是 7→3
+            layers3.append(nn.BatchNorm2d(10))
+        layers3.append(nn.MaxPool2d(2, ceil_mode=True))  # 7 → 4
         self.conv3 = nn.Sequential(*layers3)
 
         # FC: 32*4*4=512 → 10，去掉中间隐藏层，直接输出
         fc_input = CNN_FILTERS_3 * 4 * 4   # = 512
         self.fc = nn.Sequential(
             nn.Flatten(),
+            nn.Linear(fc_input, 64),   # 512 → 64
+            nn.ReLU(),
             nn.Dropout(CNN_DROPOUT),
-            nn.Linear(fc_input, 10)
+            nn.Linear(64, 10)           # 64 → 10
         )
 
     def forward(self, x):
