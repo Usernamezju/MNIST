@@ -1,12 +1,3 @@
-"""
-MNIST 手写数字识别 - 从零手搓神经网络
-===========================================
-网络结构: 全连接网络 784 -> 256 -> 128 -> 10
-
-待你填写的部分用 TODO 标注，并附有提示。
-运行环境: pip install numpy matplotlib torchvision (仅用 torchvision 加载数据集)
-"""
-
 import numpy as np
 import matplotlib.pyplot as plt
 from torchvision import datasets, transforms
@@ -15,13 +6,14 @@ from torchvision import datasets, transforms
 #  超参数配置区（调参从这里入手！）
 # ============================================================
 LEARNING_RATE = 0.1     # 试试: 0.001 / 0.01 / 0.1
-BATCH_SIZE = 64       # 试试: 32 / 64 / 256 / 1024
-EPOCHS = 20     # 轮数
+BATCH_SIZE = 64     # 试试: 32 / 64 / 256 / 1024
+EPOCHS = 40     # 轮数
 HIDDEN1 = 256      # 第一隐藏层神经元数
 HIDDEN2 = 128      # 第二隐藏层神经元数
 WEIGHT_DECAY = 0     # L2 正则化系数，0 表示关闭
 MOMENTUM = 0
 LABEL_SMOOTHING = 0    # 试试 0.0（关闭） / 0.05 / 0.1 / 0.2
+DROPOUT_RATE = 0.3
 # ============================================================
 #  1. 数据加载与预处理
 # ============================================================
@@ -96,31 +88,42 @@ def init_params():
 # ============================================================
 #  4. 前向传播
 # ============================================================
-def forward(X, params):
+def forward(X, params, is_training=True):
     """
-    返回 cache 供反向传播使用
+    is_training: 只有训练时才应用 Dropout
     """
     W1, b1 = params['W1'], params['b1']
     W2, b2 = params['W2'], params['b2']
     W3, b3 = params['W3'], params['b3']
 
-    # TODO: 实现三层前向传播
-    # 提示:
-    #   Z1 = X  @ W1 + b1         # shape: (batch, HIDDEN1)
-    #   A1 = relu(Z1)
-    #   Z2 = A1 @ W2 + b2         # shape: (batch, HIDDEN2)
-    #   A2 = relu(Z2)
-    #   Z3 = A2 @ W3 + b3         # shape: (batch, 10)
-    #   A3 = softmax(Z3)           # 输出概率
-    Z1, A1, Z2, A2, Z3, A3 = None, None, None, None, None, None
-    Z1 = X  @ W1 + b1
+    # 第一层
+    Z1 = X @ W1 + b1
     A1 = relu(Z1)
+    
+    # --- Dropout 1 ---
+    M1 = None
+    if is_training and DROPOUT_RATE > 0:
+        # 生成 0/1 掩码，存活概率为 1 - DROPOUT_RATE
+        M1 = (np.random.rand(*A1.shape) > DROPOUT_RATE).astype(float)
+        # Inverted Dropout: 除以 (1-p) 保持期望不变
+        A1 = (A1 * M1) / (1.0 - DROPOUT_RATE)
+
+    # 第二层
     Z2 = A1 @ W2 + b2
     A2 = relu(Z2)
+    
+    # --- Dropout 2 ---
+    M2 = None
+    if is_training and DROPOUT_RATE > 0:
+        M2 = (np.random.rand(*A2.shape) > DROPOUT_RATE).astype(float)
+        A2 = (A2 * M2) / (1.0 - DROPOUT_RATE)
+
+    # 输出层 (不加 Dropout)
     Z3 = A2 @ W3 + b3
     A3 = softmax(Z3)
-    cache = {'X': X, 'Z1': Z1, 'A1': A1,
-             'Z2': Z2, 'A2': A2, 'Z3': Z3, 'A3': A3}
+
+    cache = {'X': X, 'Z1': Z1, 'A1': A1, 'M1': M1,
+             'Z2': Z2, 'A2': A2, 'M2': M2, 'Z3': Z3, 'A3': A3}
     return A3, cache
 
 
@@ -145,42 +148,42 @@ def cross_entropy_loss(A3, y, params):
 #  6. 反向传播（核心！）
 # ============================================================
 def backward(cache, y, params):
-    """
-    返回梯度字典 grads
-    """
     m = len(y)
     X = cache['X']
-    Z1, A1 = cache['Z1'], cache['A1']
-    Z2, A2 = cache['Z2'], cache['A2']
+    Z1, A1, M1 = cache['Z1'], cache['A1'], cache['M1']
+    Z2, A2, M2 = cache['Z2'], cache['A2'], cache['M2']
     A3 = cache['A3']
 
-    # TODO: 实现反向传播
-    # 提示（从输出层往输入层推导）:
-    #
-    # 第三层梯度
+    # 第三层（输出层）
     K = 10
     smooth_labels = np.full((m, K), LABEL_SMOOTHING / (K - 1))
     smooth_labels[np.arange(m), y] = 1.0 - LABEL_SMOOTHING
-
-    dZ3 = (A3 - smooth_labels) / m  # 替换原来的 dZ3 三行
+    dZ3 = (A3 - smooth_labels) / m
     dW3 = A2.T @ dZ3
     db3 = dZ3.sum(axis=0, keepdims=True)
-    # 第二层梯度
+
+    # 第二层（隐藏层 2）
     dA2 = dZ3 @ params['W3'].T
+    # --- Dropout Backprop ---
+    if M2 is not None:
+        dA2 = (dA2 * M2) / (1.0 - DROPOUT_RATE)
+    
     dZ2 = dA2 * relu_grad(Z2)
     dW2 = A1.T @ dZ2
     db2 = dZ2.sum(axis=0, keepdims=True)
-    
-    # 第一层梯度
-    dA1=dZ2@ params['W2'].T
-    dZ1=dA1*relu_grad(Z1)
-    dW1=X.T@dZ1
-    db1=dZ1.sum(axis=0,keepdims=True)
-    grads = {'W1': dW1, 'b1': db1,
-             'W2': dW2, 'b2': db2,
-             'W3': dW3, 'b3': db3}
-    return grads
 
+    # 第一层（隐藏层 1）
+    dA1 = dZ2 @ params['W2'].T
+    # --- Dropout Backprop ---
+    if M1 is not None:
+        dA1 = (dA1 * M1) / (1.0 - DROPOUT_RATE)
+        
+    dZ1 = dA1 * relu_grad(Z1)
+    dW1 = X.T @ dZ1
+    db1 = dZ1.sum(axis=0, keepdims=True)
+
+    grads = {'W1': dW1, 'b1': db1, 'W2': dW2, 'b2': db2, 'W3': dW3, 'b3': db3}
+    return grads
 
 # ============================================================
 #  7. 参数更新：SGD（可扩展为 Momentum / Adam）
@@ -216,7 +219,7 @@ def train(X_train, y_train, X_test, y_test):
             Xb = X_train[i: i + BATCH_SIZE]
             yb = y_train[i: i + BATCH_SIZE]
 
-            A3, cache = forward(Xb, params)
+            A3, cache = forward(Xb, params, is_training=True)
             loss = cross_entropy_loss(A3, yb, params)
             grads = backward(cache, yb, params)
             params = update_params(params, grads)
@@ -241,7 +244,7 @@ def train(X_train, y_train, X_test, y_test):
 
 
 def evaluate(X, y, params):
-    A3, _ = forward(X, params)
+    A3, _ = forward(X, params, is_training=False)
     preds = np.argmax(A3, axis=1)
     return np.mean(preds == y)
 
@@ -266,25 +269,9 @@ def plot_history(history):
     plt.tight_layout()
     plt.savefig('training_curve.png', dpi=120)
     plt.show()
-    print("训练曲线已保存为 training_curve.png")
+    print("训练曲线已保存为 training_curve_dropout.png")
 
 
-def visualize_predictions(X_test, y_test, params, n=10):
-    """随机展示 n 张预测结果"""
-    idx = np.random.choice(len(X_test), n, replace=False)
-    A3, _ = forward(X_test[idx], params)
-    preds = np.argmax(A3, axis=1)
-
-    fig, axes = plt.subplots(1, n, figsize=(15, 2))
-    for i, ax in enumerate(axes):
-        ax.imshow(X_test[idx[i]].reshape(28, 28), cmap='gray')
-        color = 'green' if preds[i] == y_test[idx[i]] else 'red'
-        ax.set_title(
-            f"pred:{preds[i]}\ntrue:{y_test[idx[i]]}", color=color, fontsize=8)
-        ax.axis('off')
-    plt.tight_layout()
-    plt.savefig('predictions.png', dpi=120)
-    plt.show()
 
 
 # ============================================================
@@ -294,5 +281,4 @@ if __name__ == '__main__':
     X_train, y_train, X_test, y_test = load_data()
     params, history = train(X_train, y_train, X_test, y_test)
     plot_history(history)
-    visualize_predictions(X_test, y_test, params)
     print(f"\n最终测试集准确率: {evaluate(X_test, y_test, params):.4f}")
