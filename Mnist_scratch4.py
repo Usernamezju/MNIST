@@ -22,15 +22,17 @@ import matplotlib.pyplot as plt
 #  超参数配置区
 # ============================================================
 LEARNING_RATE   = 0.001
-LR_DECAY        = 0.95
+LR_DECAY        = 1  #每一轮变成原来的0.9倍        
 BATCH_SIZE      = 64
-EPOCHS          = 20
-LABEL_SMOOTHING = 0.1
-WEIGHT_DECAY    = 1e-4
-CNN_FILTERS_1   = 16
-CNN_FILTERS_2   = 32
-CNN_KERNEL_SIZE = 3
-CNN_DROPOUT     = 0.3
+EPOCHS          = 10 # 20
+LABEL_SMOOTHING = 0
+WEIGHT_DECAY    = 0
+CNN_FILTERS_1   = 16      
+CNN_FILTERS_2   = 32      
+CNN_KERNEL_SIZE = 3      
+CNN_FC_HIDDEN   = 128     
+CNN_DROPOUT     = 0.3   #dropout设置在全连接层
+MOMENTUM        = 0.9 
 CNN_USE_BN      = True
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -39,18 +41,31 @@ print(f"使用设备: {DEVICE}")
 # ============================================================
 #  1. 数据加载
 # ============================================================
-def load_data():
-    transform = transforms.Compose([
+def load_data(augment=False):
+    if augment:
+        train_transform = transforms.Compose([
+            transforms.RandomRotation(10),          # 随机旋转 ±10°
+            transforms.RandomAffine(0, translate=(0.1, 0.1)),  # 随机平移 10%
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,))
+        ])
+    else:
+        train_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,))
+        ])
+
+    # 测试集永远不做增强
+    test_transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.1307,), (0.3081,))
     ])
-    train_set    = datasets.MNIST('./data', train=True,  download=True, transform=transform)
-    test_set     = datasets.MNIST('./data', train=False, download=True, transform=transform)
+
+    train_set    = datasets.MNIST('./data', train=True,  download=True, transform=train_transform)
+    test_set     = datasets.MNIST('./data', train=False, download=True, transform=test_transform)
     train_loader = DataLoader(train_set, batch_size=BATCH_SIZE, shuffle=True,  num_workers=0)
     test_loader  = DataLoader(test_set,  batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
-    print(f"训练集: {len(train_set)} 张, 测试集: {len(test_set)} 张")
     return train_loader, test_loader
-
 
 # ============================================================
 #  2. 网络定义
@@ -169,7 +184,10 @@ def plot_history(history):
 #  入口
 # ============================================================
 if __name__ == '__main__':
-    train_loader, test_loader = load_data()
-    model, history = train(train_loader, test_loader)
-    plot_history(history)
-    print(f"\n最终测试集准确率: {history['test_acc'][-1]:.4f}")
+    train_loader, test_loader = load_data(augment=True)
+    
+    # 先建模型、加载权重，再传入训练
+    model = MnistCNN().to(DEVICE)
+    model.load_state_dict(torch.load('mnist_best_model.pth', map_location=DEVICE))
+    
+    model, history = train(model, train_loader, test_loader)  # train()改为接收model参数
